@@ -25,7 +25,7 @@ int main(int argc, char **argv) {
 	//设置本机的ip和port
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
-	addr.sin_port = 8080;
+	addr.sin_port = htons(6789);
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);	//监听"0.0.0.0"
 
 	//将本机的ip和port与socket绑定
