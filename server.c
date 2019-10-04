@@ -8,6 +8,8 @@
 #include <string.h>
 #include <memory.h>
 #include <stdio.h>
+#include <fcntl.h>
+#include <sys/select.h>
 #include <pthread.h>
 
 #define STR_BUF_SIZE 8192
@@ -137,7 +139,12 @@ int com_PORT(int connfd, char recv_data[], struct sockaddr_in *addr)
 	memset(addr, 0, sizeof(struct sockaddr_in));
 	addr->sin_family = AF_INET;
 	addr->sin_port = htons(port);
-	addr->sin_addr.s_addr = inet_addr(ip); //监听"0.0.0.0"
+	if (inet_pton(AF_INET, ip, &addr->sin_addr) <= 0)
+	{
+		printf("Error inet_pton(): %s(%d)\n", strerror(errno), errno);
+		return 1;
+	}
+	// addr->sin_addr.s_addr = inet_addr(ip); //监听"0.0.0.0"
 
 	if (send_str(connfd, "200 PORT command successful.\r\n"))
 		return 1;
@@ -145,32 +152,123 @@ int com_PORT(int connfd, char recv_data[], struct sockaddr_in *addr)
 	return 0;
 }
 
-int com_RETR(int connfd, char recv_data[], struct sockaddr_in *addr)
+int com_PASV(int connfd, int *PASV_connfd)
 {
-	char *filename = recv_data + 5;
-	if (send_str(connfd, "150 File status okay. About to open data connection.\r\n"))
+	// 获取本地地址
+	int h1, h2, h3, h4;
+	struct sockaddr_in local_addr;
+	int addr_len = sizeof(local_addr);
+	memset(&local_addr, 0, sizeof(local_addr));
+	getsockname(connfd, (struct sockaddr *)&local_addr, &addr_len);
+	char ip[16];
+	if (inet_ntop(AF_INET, (void *)&local_addr.sin_addr, ip, 16) == 0)
+	{
+		printf("Error inet_ntop(): %s(%d)\n", strerror(errno), errno);
 		return 1;
+	}
+	sscanf(ip, "%d.%d.%d.%d", &h1, &h2, &h3, &h4);
 
+	int listenfd;
+	if ((listenfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1)
+	{
+		printf("Error PASV socket(): %s(%d)\n", strerror(errno), errno);
+		return 1;
+	}
+
+	struct sockaddr_in listen_addr;
+	memset(&listen_addr, 0, sizeof(listen_addr));
+	listen_addr.sin_family = AF_INET;
+	listen_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	listen_addr.sin_port = htons(0);
+
+	//将本机的ip和port与socket绑定
+	if (bind(listenfd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) == -1)
+	{
+		printf("Error PASV bind(): %s(%d)\n", strerror(errno), errno);
+		return 1;
+	}
+
+	//开始监听socket
+	if (listen(listenfd, 10) == -1)
+	{
+		printf("Error PASV listen(): %s(%d)\n", strerror(errno), errno);
+		return 1;
+	}
+
+	// 获取监听端口
+	int port, p1, p2;
+	getsockname(listenfd, (struct sockaddr *)&local_addr, &addr_len);
+	port = ntohs(local_addr.sin_port);
+	p1 = port / 256;
+	p2 = port % 256;
+
+	char ret[64];
+	sprintf(ret, "227 Entering passive mode (%d,%d,%d,%d,%d,%d).\r\n", h1, h2, h3, h4, p1, p2);
+	if (send_str(connfd, ret))
+	{
+		close(listenfd);
+		return 1;
+	}
+
+	*PASV_connfd = listenfd;
+
+	// while (1)
+	// {
+	// 	//等待client的连接 -- 阻塞函数
+	// 	if ((*PASV_connfd = accept(listenfd, NULL, NULL)) == -1)
+	// 		printf("Error PASV accept(): %s(%d)\n", strerror(errno), errno);
+	// 	else
+	// 		break;
+	// }
+
+	// close(listenfd);
+	return 0;
+}
+
+int conn_PORT(int connfd, struct sockaddr_in *addr)
+{
 	int data_socket;
 
 	if ((data_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1)
 	{
 		printf("Error dataSocket(): %s(%d)\n", strerror(errno), errno);
 		if (send_str(connfd, "425 Can't open data connection.\r\n"))
-			return 1;
-		return 0;
+			return -2;
+		return -1;
 	}
 
 	if (connect(data_socket, addr, sizeof(struct sockaddr)) < 0)
 	{
 		printf("Error dataConnect(): %s(%d)\n", strerror(errno), errno);
 		if (send_str(connfd, "425 Can't open data connection.\r\n"))
-			return 1;
-		return 0;
+			return -2;
+		return -1;
 	}
 
-	FILE *fp;
+	return data_socket;
+}
 
+int conn_PASV(int connfd, int *listenfd)
+{
+	int data_socket;
+	//等待client的连接 -- 阻塞函数
+	if ((data_socket = accept(*listenfd, NULL, NULL)) == -1)
+		printf("Error PASV accept(): %s(%d)\n", strerror(errno), errno);
+
+	close(*listenfd);
+	listenfd = -1;
+	return data_socket;
+}
+
+int com_RETR(int connfd, char recv_data[], int data_socket)
+{
+	if (data_socket == -1)
+		return 0;
+	else if(data_socket == -2)
+		return 1;
+
+	char *filename = recv_data + 5;
+	FILE *fp;
 	if ((fp = fopen(filename, "r")) == NULL)
 	{
 		close(data_socket);
@@ -178,6 +276,9 @@ int com_RETR(int connfd, char recv_data[], struct sockaddr_in *addr)
 			return 1;
 		return 0;
 	}
+
+	if (send_str(connfd, "150 File status okay. About to send data.\r\n"))
+		return 1;
 
 	char buf[DATA_BUF_SIZE];
 	int ret;
@@ -225,11 +326,13 @@ int com_SYST(int connfd)
 	return 0;
 }
 
-void new_connect(int connfd)
+void ctrl_connect(int connfd)
 {
-	int p, len;
 	char recv_data[STR_BUF_SIZE];
-	struct sockaddr_in data_addr;
+
+	int flag = 0; //-1为PASV, 1为PORT
+	struct sockaddr_in PORT_addr;
+	int PASV_connfd = -1;
 
 	if (send_str(connfd, "220 Anonymous FTP server ready.\r\n"))
 	{
@@ -274,11 +377,32 @@ void new_connect(int connfd)
 		}
 		else if (strncmp(recv_data, "PORT", 4) == 0)
 		{
-			n = com_PORT(connfd, recv_data, &data_addr);
+			close(PASV_connfd);
+			n = com_PORT(connfd, recv_data, &PORT_addr);
+			flag = (n == 0) ? 1 : flag;
 		}
 		else if (strncmp(recv_data, "RETR", 4) == 0)
 		{
-			n = com_RETR(connfd, recv_data, &data_addr);
+			if (flag == 1)
+			{
+				int data_socket = conn_PORT(connfd, &PORT_addr);
+				n = com_RETR(connfd, recv_data, data_socket);
+			}
+			else if (flag == -1)
+			{
+				int data_socket = conn_PASV(connfd, &PASV_connfd);
+				n = com_RETR(connfd, recv_data, data_socket);
+			}
+			else
+			{
+			}
+			flag = 0;
+		}
+		else if (strcmp(recv_data, "PASV") == 0)
+		{
+			close(PASV_connfd);
+			n = com_PASV(connfd, &PASV_connfd);
+			flag = (n == 0) ? -1 : flag;
 		}
 		else if (strcmp(recv_data, "SYST") == 0)
 		{
@@ -286,10 +410,10 @@ void new_connect(int connfd)
 		}
 		else
 		{
-			n = 1;
+			n = send_str(connfd, "500 unrecongnized data\r\n");
 		}
 
-		printf("%s", recv_data);
+		printf("%s\n", recv_data);
 
 		if (n)
 		{
@@ -342,7 +466,7 @@ int main(int argc, char **argv)
 		}
 
 		pthread_t thid;
-		pthread_create(&thid, NULL, (void *)new_connect, connfd);
+		pthread_create(&thid, NULL, (void *)ctrl_connect, connfd);
 
 		// //字符串处理
 		// for (p = 0; p < len; p++) {
