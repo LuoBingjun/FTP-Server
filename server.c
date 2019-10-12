@@ -41,6 +41,8 @@ void ctrl_connect(int connfd)
 			return;
 		}
 
+		printf("%s\n", recv_data);
+
 		int n = 0;
 
 		if (strncmp(recv_data, "USER", 4) == 0)
@@ -154,8 +156,6 @@ void ctrl_connect(int connfd)
 		{
 			n = send_str(connfd, "500 Unacceptable syntax.\r\n");
 		}
-
-		printf("%s\n", recv_data);
 
 		if (n)
 		{
