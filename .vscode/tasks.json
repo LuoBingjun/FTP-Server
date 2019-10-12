@@ -5,6 +5,26 @@
     "tasks": [
         {
             "type": "shell",
+            "label": "gcc build server",
+            "command": "/usr/bin/gcc",
+            "args": [
+                "-g",
+                "${workspaceFolder}/server.c",
+                "${workspaceFolder}/utils.c",
+                "-o",
+                "${workspaceFolder}/server",
+                "-lpthread"
+            ],
+            "options": {
+                "cwd": "/usr/bin"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "build"
+        },
+        {
+            "type": "shell",
             "label": "gcc build active file",
             "command": "/usr/bin/gcc",
             "args": [

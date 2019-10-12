@@ -1,6 +1,10 @@
 {
     "files.associations": {
         "pthread.h": "c",
-        "socket.h": "c"
+        "socket.h": "c",
+        "utils.h": "c",
+        "unistd.h": "c",
+        "stdio.h": "c",
+        "select.h": "c"
     }
 }
