@@ -9,6 +9,7 @@ void ctrl_connect(int connfd)
 	struct sockaddr_in PORT_addr;
 	int flag = 0; // -1:PASV, 1:PORT
 	int PASV_connfd = -1;
+	int REST = 0;
 
 	if (send_str(connfd, "220 Anonymous FTP server ready.\r\n"))
 	{
@@ -37,6 +38,7 @@ void ctrl_connect(int connfd)
 	{
 		if (recv_str(connfd, recv_data, STR_BUF_SIZE))
 		{
+			close(PASV_connfd);
 			close(connfd);
 			return;
 		}
@@ -65,23 +67,28 @@ void ctrl_connect(int connfd)
 			n = com_PASV(connfd, &PASV_connfd);
 			flag = (n == 0) ? -1 : flag;
 		}
+		else if (strncmp(recv_data, "REST", 4) == 0)
+		{
+			n = com_REST(connfd, recv_data, &REST);
+		}
 		else if (strncmp(recv_data, "RETR", 4) == 0)
 		{
 			if (flag == 1)
 			{
 				int data_socket = conn_PORT(connfd, &PORT_addr);
-				n = com_RETR(connfd, recv_data, data_socket, cur_path);
+				n = com_RETR(connfd, recv_data, data_socket, cur_path, REST);
 			}
 			else if (flag == -1)
 			{
 				int data_socket = conn_PASV(connfd, &PASV_connfd);
-				n = com_RETR(connfd, recv_data, data_socket, cur_path);
+				n = com_RETR(connfd, recv_data, data_socket, cur_path, REST);
 			}
 			else
 			{
 				n = send_str(connfd, "503 Bad sequence of commands.\r\n");
 			}
 			flag = 0;
+			REST = 0;
 		}
 		else if (strncmp(recv_data, "STOR", 4) == 0)
 		{
@@ -101,6 +108,25 @@ void ctrl_connect(int connfd)
 			}
 			flag = 0;
 		}
+		else if (strncmp(recv_data, "APPE", 4) == 0)
+		{
+			if (flag == 1)
+			{
+				int data_socket = conn_PORT(connfd, &PORT_addr);
+				n = com_APPE(connfd, recv_data, data_socket, cur_path);
+			}
+			else if (flag == -1)
+			{
+				int data_socket = conn_PASV(connfd, &PASV_connfd);
+				n = com_APPE(connfd, recv_data, data_socket, cur_path);
+			}
+			else
+			{
+				n = send_str(connfd, "503 Bad sequence of commands.\r\n");
+			}
+			flag = 0;
+			REST = 0;
+		}
 		else if (strcmp(recv_data, "PWD") == 0)
 		{
 			n = com_PWD(connfd, recv_data, cur_path);
@@ -116,6 +142,10 @@ void ctrl_connect(int connfd)
 		else if (strncmp(recv_data, "RMD", 3) == 0)
 		{
 			n = com_RMD(connfd, recv_data, cur_path);
+		}
+		else if (strncmp(recv_data, "DELE", 4) == 0)
+		{
+			n = com_DELE(connfd, recv_data, cur_path);
 		}
 		else if (strncmp(recv_data, "RNFR", 4) == 0)
 		{
@@ -147,10 +177,24 @@ void ctrl_connect(int connfd)
 		{
 			n = com_SYST(connfd);
 		}
-		else if (strcmp(recv_data, "QUIT") == 0 || strcmp(recv_data, "ABOR") == 0)
+		else if (strcmp(recv_data, "QUIT") == 0)
 		{
 			n = com_QUIT(connfd);
-			close(PASV_connfd);
+		}
+		else if (strcmp(recv_data, "ABOR") == 0)
+		{
+			if (flag)
+			{
+				memset(&PORT_addr, 0, sizeof(PORT_addr));
+				close(PASV_connfd);
+				PASV_connfd = -1;
+				flag = 0;
+				n = send_str(connfd, "226 Closing data connection.\r\n");
+			}
+			else
+			{
+				n = send_str(connfd, "225 No transfer to ABOR.\r\n");
+			}
 		}
 		else
 		{
@@ -159,6 +203,7 @@ void ctrl_connect(int connfd)
 
 		if (n)
 		{
+			close(PASV_connfd);
 			close(connfd);
 			return;
 		}
@@ -238,12 +283,7 @@ int main(int argc, char **argv)
 		}
 
 		pthread_t thid;
-		pthread_create(&thid, NULL, (void *)ctrl_connect, connfd);
-
-		// //字符串处理
-		// for (p = 0; p < len; p++) {
-		// 	sentence[p] = toupper(sentence[p]);
-		// }
+		pthread_create(&thid, NULL, (void *)ctrl_connect, (void *)(intptr_t)connfd);
 	}
 
 	close(listenfd);

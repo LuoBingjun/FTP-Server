@@ -14,7 +14,7 @@ int recv_str(int connfd, char data[], int size)
 		}
 		else if (n == 0)
 		{
-			return 1;
+			break;
 		}
 		else
 		{
@@ -37,7 +37,7 @@ int send_str(int connfd, char data[])
 	int len = strlen(data);
 	while (p < len)
 	{
-		int n = write(connfd, data + p, len - p);
+		int n = send(connfd, data + p, len - p, MSG_NOSIGNAL);
 		if (n < 0)
 		{
 			printf("Error write(): %s(%d)\n", strerror(errno), errno);
@@ -56,8 +56,8 @@ int send_data(int connfd, char data[], int len)
 	int p = 0;
 	while (p < len)
 	{
-		int n = write(connfd, data + p, len - p);
-		if (n < 0)
+		int n = send(connfd, data + p, len - p, MSG_NOSIGNAL);
+		if (n <= 0)
 		{
 			printf("Error write(): %s(%d)\n", strerror(errno), errno);
 			return 1;
@@ -128,11 +128,6 @@ int com_TYPE(int connfd, char recv_data[])
 		if (send_str(connfd, "200 Type set to I.\r\n"))
 			return 1;
 	}
-	else if (strcmp(recv_data + 5, "A") == 0)
-	{
-		if (send_str(connfd, "200 Type set to A.\r\n"))
-			return 1;
-	}
 	else
 	{
 		if (send_str(connfd, "504 Unsupported type.\r\n"))
@@ -178,7 +173,7 @@ int com_PASV(int connfd, int *PASV_connfd)
 	// 获取本地地址
 	int h1, h2, h3, h4;
 	struct sockaddr_in local_addr;
-	int addr_len = sizeof(local_addr);
+	unsigned addr_len = sizeof(local_addr);
 	memset(&local_addr, 0, sizeof(local_addr));
 	getsockname(connfd, (struct sockaddr *)&local_addr, &addr_len);
 	char ip[16];
@@ -247,7 +242,7 @@ int conn_PORT(int connfd, struct sockaddr_in *addr)
 		return -1;
 	}
 
-	if (connect(data_socket, addr, sizeof(struct sockaddr)) < 0)
+	if (connect(data_socket, (struct sockaddr *)addr, sizeof(struct sockaddr)) < 0)
 	{
 		printf("Error dataConnect(): %s(%d)\n", strerror(errno), errno);
 		if (send_str(connfd, "425 Can't open data connection.\r\n"))
@@ -270,7 +265,19 @@ int conn_PASV(int connfd, int *listenfd)
 	return data_socket;
 }
 
-int com_RETR(int connfd, char recv_data[], int data_socket, char cur_path[])
+int com_REST(int connfd, char recv_data[], int *REST)
+{
+	recv_data += 4;
+	while (*recv_data == ' ' && *recv_data != '\0')
+		recv_data++;
+
+	*REST = atoi(recv_data);
+	if (send_str(connfd, "350 Requested file action pending further information.\r\n"))
+		return 1;
+	return 0;
+}
+
+int com_RETR(int connfd, char recv_data[], int data_socket, char cur_path[], int REST)
 {
 	if (data_socket == -1)
 		return 0;
@@ -293,7 +300,10 @@ int com_RETR(int connfd, char recv_data[], int data_socket, char cur_path[])
 	char buf[DATA_BUF_SIZE] = {0};
 	int ret;
 
-	sprintf(buf, "./%s/%s", cur_path, filename);
+	if (*filename == '/')
+		sprintf(buf, "./%s", filename);
+	else
+		sprintf(buf, "./%s/%s", cur_path, filename);
 
 	if ((fp = fopen(buf, "r")) == NULL)
 	{
@@ -304,29 +314,59 @@ int com_RETR(int connfd, char recv_data[], int data_socket, char cur_path[])
 		return 0;
 	}
 
+	fseek(fp, REST, SEEK_SET);
+
 	if (send_str(connfd, "150 File status okay. About to send data.\r\n"))
 		return 1;
 
 	while (1)
 	{
+		// fd_set fdset;
+		// FD_ZERO(&fdset);
+		// FD_SET(connfd, &fdset);
+		// struct timeval timeout = {0, 0};
+		// ret = select(0, &fdset, NULL, NULL, &timeout);
+		// if (ret > 0)
+		// {
+		// 	ret = recv(connfd, recv_data, STR_BUF_SIZE, MSG_PEEK);
+		// 	if (strcmp(recv_data, 'ABOR') == 0)
+		// 	{
+		// 		ret = recv_str(connfd, recv_data, STR_BUF_SIZE);
+		// 		if (send_str(connfd, "426 Connection closed; transfer aborted.\r\n"))
+		// 			return 1;
+		// 		break;
+		// 	}
+		// 	else if (strcmp(recv_data, 'QUIT') == 0)
+		// 	{
+		// 		break;
+		// 	}
+		// }
+
 		ret = fread(buf, 1, DATA_BUF_SIZE, fp);
 
 		if (send_data(data_socket, buf, ret))
 		{
-			fclose(fp);
-			close(data_socket);
+
 			if (send_str(connfd, "426 Connection closed; transfer aborted.\r\n"))
+			{
+				fclose(fp);
+				close(data_socket);
 				return 1;
-			return 0;
+			}
+			break;
 		}
 
 		if (ferror(fp))
 		{
-			fclose(fp);
-			close(data_socket);
+			// fclose(fp);
+			// close(data_socket);
 			if (send_str(connfd, "451 Requested action aborted. Local error in processing.\r\n"))
+			{
+				fclose(fp);
+				close(data_socket);
 				return 1;
-			return 0;
+			}
+			break;
 		}
 
 		if (feof(fp))
@@ -363,9 +403,11 @@ int com_STOR(int connfd, char data[], int data_socket, char cur_path[])
 
 	FILE *fp;
 	char buf[DATA_BUF_SIZE] = {0};
-	int ret;
 
-	sprintf(buf, "./%s/%s", cur_path, filename);
+	if (*filename == '/')
+		sprintf(buf, "./%s", filename);
+	else
+		sprintf(buf, "./%s/%s", cur_path, filename);
 
 	if ((fp = fopen(buf, "wb")) == NULL)
 	{
@@ -379,19 +421,26 @@ int com_STOR(int connfd, char data[], int data_socket, char cur_path[])
 	if (send_str(connfd, "150 File status okay. About to receive data.\r\n"))
 		return 1;
 
+	// fd_set fdset;
+	// FD_ZERO(&fdset);
+	// FD_SET(connfd, &fdset);
+	// struct timeval timeout = {0, 0};
+
+	int ret;
 	while (1)
 	{
+
 		int p = recv_data(data_socket, buf, DATA_BUF_SIZE);
 		if (p > 0)
 		{
-			ret = fwrite(buf, 1, p, fp);
+			fwrite(buf, 1, p, fp);
 			if (ferror(fp))
 			{
 				close(data_socket);
 				fclose(fp);
 				if (send_str(connfd, "451 Requested action aborted. Local error in processing.\r\n"))
 					return 1;
-				return 0;
+				break;
 			}
 		}
 		else if (p == 0)
@@ -402,7 +451,86 @@ int com_STOR(int connfd, char data[], int data_socket, char cur_path[])
 		{
 			if (send_str(connfd, "426 Connection closed; transfer aborted.\r\n"))
 				return 1;
-			return 0;
+			break;
+		}
+	}
+
+	close(data_socket);
+	fclose(fp);
+
+	if (send_str(connfd, "226 Transfer complete.\r\n"))
+		return 1;
+
+	return 0;
+}
+
+int com_APPE(int connfd, char data[], int data_socket, char cur_path[])
+{
+	if (data_socket == -1)
+		return 0;
+	else if (data_socket == -2)
+		return 1;
+
+	char *filename = data + 4;
+	while (*filename == ' ' && *filename != '\0')
+		filename++;
+
+	if (strstr(filename, ".."))
+	{
+		close(data_socket);
+		if (send_str(connfd, "550 Access denied.\r\n"))
+			return 1;
+		return 0;
+	}
+
+	FILE *fp;
+	char buf[DATA_BUF_SIZE] = {0};
+
+	if (*filename == '/')
+		sprintf(buf, "./%s", filename);
+	else
+		sprintf(buf, "./%s/%s", cur_path, filename);
+
+	if ((fp = fopen(buf, "ab")) == NULL)
+	{
+		close(data_socket);
+		sprintf(buf, "550 %s.\r\n", strerror(errno));
+		if (send_str(connfd, buf))
+			return 1;
+		return 0;
+	}
+
+	// fseek(fp, 0, SEEK_END);
+
+	if (send_str(connfd, "150 File status okay. About to receive data.\r\n"))
+		return 1;
+
+	int ret;
+	while (1)
+	{
+
+		int p = recv_data(data_socket, buf, DATA_BUF_SIZE);
+		if (p > 0)
+		{
+			fwrite(buf, 1, p, fp);
+			if (ferror(fp))
+			{
+				close(data_socket);
+				fclose(fp);
+				if (send_str(connfd, "451 Requested action aborted. Local error in processing.\r\n"))
+					return 1;
+				break;
+			}
+		}
+		else if (p == 0)
+		{
+			break;
+		}
+		else
+		{
+			if (send_str(connfd, "426 Connection closed; transfer aborted.\r\n"))
+				return 1;
+			break;
 		}
 	}
 
@@ -495,7 +623,7 @@ int com_CWD(int connfd, char data[], char cur_path[])
 			strcpy(cur_path, abs_path + p);
 	}
 
-	sprintf(buf, "200 directory changed to %s\r\n", cur_path);
+	sprintf(buf, "250 directory changed to %s\r\n", cur_path);
 	// printf("directory changed to %s\n", cur_path);
 	if (send_str(connfd, buf))
 		return 1;
@@ -548,6 +676,55 @@ int com_RMD(int connfd, char data[], char cur_path[])
 	}
 
 	if (send_str(connfd, "250 Directory removed.\r\n"))
+		return 1;
+	return 0;
+}
+
+int com_DELE(int connfd, char data[], char cur_path[])
+{
+	char *subpath = data + 4;
+	while (*subpath == ' ' && *subpath != '\0')
+		subpath++;
+
+	if (strstr(subpath, ".."))
+	{
+		if (send_str(connfd, "550 Access denied.\r\n"))
+			return 1;
+		return 0;
+	}
+
+	char filename[STR_BUF_SIZE] = {0};
+	char buf[STR_BUF_SIZE] = {0};
+
+	if (*subpath == '/')
+		sprintf(filename, "./%s", subpath);
+	else
+		sprintf(filename, "./%s/%s", cur_path, subpath);
+
+	if (realpath(filename, buf) == NULL)
+	{
+		sprintf(buf, "550 %s.\r\n", strerror(errno));
+		if (send_str(connfd, buf))
+			return 1;
+		return 0;
+	}
+
+	if (strcmp(buf, dir_path) == 0)
+	{
+		if (send_str(connfd, "550 Access denied.\r\n"))
+			return 1;
+		return 0;
+	}
+
+	if (unlink(filename) == -1)
+	{
+		sprintf(buf, "550 %s.\r\n", strerror(errno));
+		if (send_str(connfd, buf))
+			return 1;
+		return 0;
+	}
+
+	if (send_str(connfd, "250 File removed.\r\n"))
 		return 1;
 	return 0;
 }
@@ -663,9 +840,8 @@ int com_LIST(int connfd, char data[], int data_socket, char cur_path[])
 		return 0;
 	}
 
-	sprintf(buf, "ls -al %s", abs_path);
+	sprintf(buf, "ls -l '%s'", abs_path);
 	FILE *fp;
-	int ret;
 
 	if ((fp = popen(buf, "r")) == NULL)
 	{
@@ -723,6 +899,13 @@ int com_LIST(int connfd, char data[], int data_socket, char cur_path[])
 int com_SYST(int connfd)
 {
 	if (send_str(connfd, "215 UNIX Type: L8\r\n"))
+		return 1;
+	return 0;
+}
+
+int com_ABOR(int connfd)
+{
+	if (send_str(connfd, "426 Connection closed; transfer aborted.\r\n"))
 		return 1;
 	return 0;
 }
