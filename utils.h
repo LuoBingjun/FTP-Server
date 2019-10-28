@@ -16,6 +16,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <regex.h>
 
 #define STR_BUF_SIZE 8192
 #define DATA_BUF_SIZE 8192

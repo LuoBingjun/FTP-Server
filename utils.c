@@ -102,7 +102,7 @@ int com_USER(int connfd, char recv_data[])
 	if (strcmp(recv_data + 5, "anonymous"))
 	{
 		send_str(connfd, "530 Authentication failed.\r\n");
-		return 0;
+		return 1;
 	}
 
 	if (send_str(connfd, "331 Guest login ok, send your complete e-mail address as password.\r\n"))
@@ -114,7 +114,16 @@ int com_USER(int connfd, char recv_data[])
 	if (strncmp(recv_data, "PASS", 4))
 		return 1;
 
-	// password
+	recv_data += 5;
+	regex_t reg;
+	regmatch_t pmatch[1];
+	regcomp(&reg, "^[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]*(\\.[a-zA-Z0-9_-]+)*$", REG_EXTENDED);
+	if (regexec(&reg, recv_data, 1, pmatch, 0) == REG_NOMATCH)
+	{
+		send_str(connfd, "530 Authentication failed.\r\n");
+		return 1;
+	}
+
 	if (send_str(connfd, "230 Guest login ok, access restrictions apply.\r\n"))
 		return 1;
 
