@@ -430,12 +430,6 @@ int com_STOR(int connfd, char data[], int data_socket, char cur_path[])
 	if (send_str(connfd, "150 File status okay. About to receive data.\r\n"))
 		return 1;
 
-	// fd_set fdset;
-	// FD_ZERO(&fdset);
-	// FD_SET(connfd, &fdset);
-	// struct timeval timeout = {0, 0};
-
-	int ret;
 	while (1)
 	{
 
@@ -514,7 +508,6 @@ int com_APPE(int connfd, char data[], int data_socket, char cur_path[])
 	if (send_str(connfd, "150 File status okay. About to receive data.\r\n"))
 		return 1;
 
-	int ret;
 	while (1)
 	{
 
@@ -880,7 +873,7 @@ int com_LIST(int connfd, char data[], int data_socket, char cur_path[])
 			}
 		}
 
-		if (strncmp(buf, "total", 5) == 0 || strncmp(buf, "ls: ", 3) == 0)
+		if (buf[0] != 'd' && buf[0] != '-')
 			continue;
 
 		buf[strlen(buf) - 1] = '\0';
