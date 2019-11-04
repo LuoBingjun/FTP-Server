@@ -1,5 +1,7 @@
 #include "utils.h"
 
+// 以下为数据收发函数
+
 int recv_str(int connfd, char data[], int size)
 {
 	//榨干socket传来的内容
@@ -94,6 +96,8 @@ int recv_data(int connfd, char data[], int size)
 
 	return p;
 }
+
+// 以下为命令处理函数
 
 int com_USER(int connfd, char recv_data[])
 {
@@ -330,27 +334,6 @@ int com_RETR(int connfd, char recv_data[], int data_socket, char cur_path[], int
 
 	while (1)
 	{
-		// fd_set fdset;
-		// FD_ZERO(&fdset);
-		// FD_SET(connfd, &fdset);
-		// struct timeval timeout = {0, 0};
-		// ret = select(0, &fdset, NULL, NULL, &timeout);
-		// if (ret > 0)
-		// {
-		// 	ret = recv(connfd, recv_data, STR_BUF_SIZE, MSG_PEEK);
-		// 	if (strcmp(recv_data, 'ABOR') == 0)
-		// 	{
-		// 		ret = recv_str(connfd, recv_data, STR_BUF_SIZE);
-		// 		if (send_str(connfd, "426 Connection closed; transfer aborted.\r\n"))
-		// 			return 1;
-		// 		break;
-		// 	}
-		// 	else if (strcmp(recv_data, 'QUIT') == 0)
-		// 	{
-		// 		break;
-		// 	}
-		// }
-
 		ret = fread(buf, 1, DATA_BUF_SIZE, fp);
 
 		if (send_data(data_socket, buf, ret))
@@ -367,8 +350,6 @@ int com_RETR(int connfd, char recv_data[], int data_socket, char cur_path[], int
 
 		if (ferror(fp))
 		{
-			// fclose(fp);
-			// close(data_socket);
 			if (send_str(connfd, "451 Requested action aborted. Local error in processing.\r\n"))
 			{
 				fclose(fp);
@@ -502,8 +483,6 @@ int com_APPE(int connfd, char data[], int data_socket, char cur_path[])
 			return 1;
 		return 0;
 	}
-
-	// fseek(fp, 0, SEEK_END);
 
 	if (send_str(connfd, "150 File status okay. About to receive data.\r\n"))
 		return 1;

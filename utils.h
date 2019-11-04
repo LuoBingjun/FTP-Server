@@ -1,22 +1,21 @@
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-
 #include <unistd.h>
 #include <errno.h>
-
 #include <ctype.h>
 #include <string.h>
 #include <memory.h>
 #include <stdio.h>
-// #include <fcntl.h>
-#include <sys/select.h>
 #include <pthread.h>
 #include <stdlib.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <unistd.h>
 #include <regex.h>
+
+#include <sys/socket.h>
+#include <sys/select.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 
 #define STR_BUF_SIZE 8192
 #define DATA_BUF_SIZE 8192

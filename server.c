@@ -2,6 +2,7 @@
 
 char dir_path[STR_BUF_SIZE] = "/tmp";
 
+// 处理控制连接
 void ctrl_connect(int connfd)
 {
 	char recv_data[STR_BUF_SIZE];
@@ -282,6 +283,7 @@ int main(int argc, char **argv)
 			continue;
 		}
 
+		// 为新的连接创建新线程
 		pthread_t thid;
 		pthread_create(&thid, NULL, (void *)ctrl_connect, (void *)(intptr_t)connfd);
 	}
