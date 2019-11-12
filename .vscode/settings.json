@@ -5,6 +5,8 @@
         "utils.h": "c",
         "unistd.h": "c",
         "stdio.h": "c",
-        "select.h": "c"
-    }
+        "select.h": "c",
+        "errno.h": "c"
+    },
+    "python.pythonPath": "/usr/bin/python"
 }

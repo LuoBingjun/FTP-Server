@@ -13,7 +13,7 @@
                 "-port",
                 "6789",
                 "-root",
-                "../"
+                "/mnt/e"
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
@@ -29,6 +29,13 @@
             ],
             "preLaunchTask": "gcc build server",
             "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Python: 当前文件",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
         },
         {
             "name": "gcc build and debug active file",
